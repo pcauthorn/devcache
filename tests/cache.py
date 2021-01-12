@@ -2,7 +2,7 @@ import unittest
 from copy import deepcopy
 from unittest import mock
 
-from reiteration.cache import _get_arg_map, _update_dicts, cache_decorator, OverridableKwargs
+from reiteration.cache import _get_arg_map, _update_dicts, _get_overrides, cache_decorator, OverridableKwargs
 from reiteration.storage import MemoryStore
 
 
@@ -147,34 +147,13 @@ class TestCacheDecorator(unittest.TestCase):
         self.assertTrue(all([x.startswith('yo') for x in self.store.data]))
 
 
-class TestCacheDecoratorOverrides(unittest.TestCase):
-
-    def setUp(self):
-        self.store = MemoryStore()
-        self.stash = mock.patch('reiteration.cache.stash', self.store)
-        self.stash.start()
-        self.mock = mock.Mock()
-        self.mock.__qualname__ = 'qualname'
-        self.mock.__name__ = 'unit_test'
-
-    def tearDown(self):
-        self.stash.stop()
+class TestGetOverrides(unittest.TestCase):
 
     def test_overrides(self):
         overrides = {OverridableKwargs.Use_Cache: True}
         group_overrides = {'A': {OverridableKwargs.Use_Cache: False}}
-        decorated = cache_decorator(key_prefix='yo', overrides=overrides, group_overrides=group_overrides)(self.mock)
-        decorated('hello')
-        decorated('hello')
-        self.mock.assert_called_once()
-        self.mock.reset_mock()
-        decorated = cache_decorator(group='A',
-                                    key_prefix='yo',
-                                    overrides=overrides,
-                                    group_overrides=group_overrides)(self.mock)
-        decorated('hello')
-        decorated('hello')
-        self.assertEqual(self.mock.call_count, 2)
+        o = _get_overrides(overrides, group_overrides, 'A')
+        self.assertFalse(o[OverridableKwargs.Use_Cache])
 
 
 if __name__ == '__main__':

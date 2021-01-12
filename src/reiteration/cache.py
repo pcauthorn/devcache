@@ -18,11 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 class OverridableKwargs:
-    Group = 'group'
+    # Group = 'group'
     Enabled = 'enabled'
     Use_Cache = 'use_cache'
     Verbose = 'verbose'
     Key_Prefix = 'key_prefix'
+    Reset = 'reset'
     # Ignore_Key_Args = 'ignore_key_args'  #These don't make sense right?
     # Key_Args = 'key_args'
 
@@ -85,6 +86,13 @@ def _get_arg_keys(arg_map):
     return f'({",".join(d)})'
 
 
+def _get_overrides(overrides, group_overrides, group):
+    overrides = overrides or {}
+    group_overrides = group_overrides or {}
+    group_overrides = group_overrides.get(group) or {}
+    return _update_dicts(overrides, group_overrides)
+
+
 def cache_decorator(group=None,
                     enabled=None,
                     use_cache=None,
@@ -94,12 +102,8 @@ def cache_decorator(group=None,
                     key_prefix=None,
                     ignore_key_args: list = None,
                     overrides=None):
-    overrides = overrides or {}
-    group_overrides = group_overrides or {}
-    if not group:
-        group = overrides.get(OverridableKwargs.Group)
-    group_overrides = group_overrides.get(group) or {}
-    overrides = _update_dicts(overrides, group_overrides)
+    overrides = _get_overrides(overrides, group_overrides, group)
+
     if enabled is None:
         enabled = overrides.get(OverridableKwargs.Enabled, True)
     if use_cache is None:
@@ -127,8 +131,8 @@ def cache_decorator(group=None,
         def wrap(*args, **kwargs):
             arg_map = _get_arg_map(func, key_args, ignore_key_args, args, kwargs, verbose=verbose)
             # arg_map = {arg: locals()[arg] for arg in arg_names}
-            kp = key_prefix or ''
-            key = f'{kp}.{func.__module__}.{func.__qualname__}.{func.__name__}{_get_arg_keys(arg_map)}'
+            kp = key_prefix + '.' if key_prefix else ''
+            key = f'{kp}{func.__module__}.{func.__qualname__}.{func.__name__}{_get_arg_keys(arg_map)}'
 
             if not enabled:
                 if verbose:
