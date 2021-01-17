@@ -1,8 +1,10 @@
 import unittest
 from copy import deepcopy
 from unittest import mock
+from unittest.mock import patch
 
-from reiteration.cache import _get_arg_map, _update_dicts, _get_overrides, cache_decorator, OverridableKwargs
+from reiteration.cache import OverridableKwargs, OverrideOnlyKwargs
+from reiteration.cache import _update_dicts, _get_overrides, _get_key_args, cache_decorator
 from reiteration.storage import MemoryStore
 
 
@@ -18,47 +20,61 @@ def with_both(arg1, arg2, kwarg1=None, kwarg2=None):
     pass
 
 
+class Md5Patch:
+
+    def __init__(self, data):
+        self.data = data
+
+    def hexdigest(self):
+        if not self.data:
+            return 'None'
+        return self.data.decode("utf-8")
+
+
 class TestGetArgs(unittest.TestCase):
 
-    def with_args_with_self(self, a, b, c):
+    def setUp(self):
+        self.md5_patch = patch('reiteration.cache.md5', Md5Patch)
+        self.md5_patch.start()
+
+    def tearDown(self):
+        self.md5_patch.stop()
+
+    def obj_method(self):
         pass
 
     def test_obj_method(self):
-        self.assertEqual({'a': 1, 'b': 2, 'c': 3},
-                         _get_arg_map(self.with_args_with_self, None, None, [self, 1, 2, 3], {}))
+        self.assertEqual('(1, 2, 3)', _get_key_args(self.obj_method, None, None, [self, 1, 2, 3], {}))
 
     def test_use_all(self):
-        self.assertEqual({'a': 'x', 'b': 'y', 'c': 'z'}, _get_arg_map(with_args, None, None, ['x', 'y', 'z'], {}))
-        self.assertEqual({'kwarg1': '1', 'kwarg2': '2'},
-                         _get_arg_map(with_kwargs, None, None, [], {'kwarg1': '1', 'kwarg2': '2'}))
-        self.assertEqual({'arg1': 'v1', 'arg2': 'v2', 'kwarg1': 1, 'kwarg2': 2},
-                         _get_arg_map(with_both, None, None, ['v1', 'v2'], {'kwarg1': 1, 'kwarg2': 2}))
+        self.assertEqual('(x, y, z)', _get_key_args(with_args, None, None, ['x', 'y', 'z'], {}))
+        self.assertEqual('(kwarg1 = 1, kwarg2 = 2)',
+                         _get_key_args(with_kwargs, None, None, [], {'kwarg1': '1', 'kwarg2': '2'}))
+        self.assertEqual('(v1, v2, kwarg1 = 1, kwarg2 = 2)',
+                         _get_key_args(with_both, None, None, ['v1', 'v2'], {'kwarg1': 1, 'kwarg2': 2}))
 
     def test_no_args(self):
-        self.assertEqual({}, _get_arg_map(with_args, [], None, [], {}))
-        self.assertEqual({}, _get_arg_map(with_kwargs, [], None, [], {}))
-        self.assertEqual({}, _get_arg_map(with_both, [], None, [], {}))
+        self.assertEqual('()', _get_key_args(with_args, [], None, [], {}))
+        self.assertEqual('()', _get_key_args(with_kwargs, [], None, [], {}))
+        self.assertEqual('()', _get_key_args(with_both, [], None, [], {}))
 
     def test_use_some(self):
-        self.assertEqual({'a': 'z'}, _get_arg_map(with_args, ['a'], None, ['z'], {}))
-        self.assertEqual({'z': 'a'}, _get_arg_map(with_kwargs, ['z'], None, ['a', 'b'], {'z': 'a'}))
-        self.assertEqual({'arg1': 'arg1v', 'kwarg1': 'v'},
-                         _get_arg_map(with_both, ['arg1', 'kwarg1'], None, ['arg1v'], {'kwarg1': 'v'}))
+        self.assertEqual('(first)', _get_key_args(with_args, ['a'], None, ['first', 'second', 'third'], {'hello': 1}))
+        self.assertEqual('(arg1v, kwarg1 = v)',
+                         _get_key_args(with_both, ['arg1', 'kwarg1'], None, ['arg1v'], {'kwarg1': 'v'}))
 
-    #
-    # _get_arg_map(func, key_args, ignore_key_args, arg_vals, kwargs_vals, verbose=False):
     def test_ignore_some(self):
-        self.assertEqual({'c': '3'}, _get_arg_map(with_args, None, ['a', 'b'], ['1', '2', '3'], None), ['c'])
-        self.assertEqual({'x': 3, 'y': 2}, _get_arg_map(with_kwargs, None, ['z'], None, {'x': 3, 'y': 2}))
-        self.assertEqual({'kwarg2': 'kw2', 'arg2': 'hello'},
-                         _get_arg_map(with_both,
-                                      None,
-                                      ['arg1', 'kwarg1'],
-                                      ['yo', 'hello'],
-                                      {'kwarg1': 'kw1', 'kwarg2': 'kw2'}))
+        self.assertEqual('(3)', _get_key_args(with_args, None, ['a', 'b'], ['1', '2', '3'], None))
+        self.assertEqual('(x = 3, y = 2)', _get_key_args(with_kwargs, None, ['z'], None, {'x': 3, 'y': 2}))
+        self.assertEqual('(hello, kwarg2 = kw2)',
+                         _get_key_args(with_both,
+                                       None,
+                                       ['arg1', 'kwarg1'],
+                                       ['yo', 'hello'],
+                                       {'kwarg1': 'kw1', 'kwarg2': 'kw2'}))
 
     def test_wrong_args(self):
-        self.assertEqual({}, _get_arg_map(with_args, ['a1', 'b1'], ['yes', 'yep'], {}, []))
+        self.assertEqual('()', _get_key_args(with_args, ['a1', 'b1'], ['yes', 'yep'], {}, []))
 
 
 class TestUpdateDicts(unittest.TestCase):
@@ -127,6 +143,19 @@ class TestCacheDecorator(unittest.TestCase):
         self.assertEqual(self.mock.call_count, 1)
         self.mock.reset_mock()
         decorated = cache_decorator(use_cache=False)(self.mock)
+        decorated('hello')
+        decorated('hello')
+        self.assertEqual(self.mock.call_count, 2)
+
+    def test_reset(self):
+        decorated = cache_decorator(use_cache=True, overrides={OverrideOnlyKwargs.Reset: False})(self.mock)
+        self.mock.return_value = 3
+        decorated('hello')
+        decorated('hello')
+        self.assertEqual(self.mock.call_count, 1)
+        self.mock.reset_mock()
+        decorated = cache_decorator(use_cache=True, overrides={OverrideOnlyKwargs.Reset: True})(self.mock)
+        self.mock.return_value = 32
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 2)

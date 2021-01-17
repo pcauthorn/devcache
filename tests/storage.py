@@ -1,8 +1,9 @@
-import unittest
 import tempfile
-from reiteration.storage import SqliteStore
+import unittest
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
+
+from reiteration.storage import SqliteStore
 
 
 class PickleMe:
@@ -94,14 +95,14 @@ class TestSqliteStore(unittest.TestCase):
         self.store.delete_older(datetime.utcnow())
         self.assertEqual(len(self.store._ls()), 0)
 
-    def test_delete_by_group(self):
-        self.store.store(1, 1, group='a')
-        self.store.store(2, 2, group='a')
+    def test_delete_by_tag(self):
+        self.store.store(1, 1, tag='a')
+        self.store.store(2, 2, tag='a')
 
-        self.store.store('h', 'hello', group='b')
-        self.store.store('i', 'ciao', group='b')
+        self.store.store('h', 'hello', tag='b')
+        self.store.store('i', 'ciao', tag='b')
 
-        self.store.delete_by_group('a')
+        self.store.delete_by_tag('a')
         self.assertEqual(self.store._ls(), ['h', 'i'])
 
 
