@@ -1,11 +1,13 @@
 import unittest
 from copy import deepcopy
+from io import StringIO
 from unittest import mock
 from unittest.mock import patch
+from unittest.mock import create_autospec
 
-from reiteration.cache import OverridableKwargs, OverrideOnlyKwargs
-from reiteration.cache import _update_dicts, _get_overrides, _get_key_args, cache_decorator
+from reiteration.cache import _get_function_arg_str, cache_decorator
 from reiteration.storage import MemoryStore
+from reiteration.utils import update_dicts
 
 
 def with_args(a, b, c):
@@ -40,41 +42,49 @@ class TestGetArgs(unittest.TestCase):
     def tearDown(self):
         self.md5_patch.stop()
 
-    def obj_method(self):
+    def obj_method(self, a, b, c):
         pass
 
     def test_obj_method(self):
-        self.assertEqual('(1, 2, 3)', _get_key_args(self.obj_method, None, None, [self, 1, 2, 3], {}))
+        self.assertEqual('(a=1, b=2, c=3)', _get_function_arg_str(self.obj_method,
+                                                                  [self, 1, 2, 3],
+                                                                  {},
+                                                                  ['a', 'b', 'c'],
+                                                                  None))
 
     def test_use_all(self):
-        self.assertEqual('(x, y, z)', _get_key_args(with_args, None, None, ['x', 'y', 'z'], {}))
-        self.assertEqual('(kwarg1 = 1, kwarg2 = 2)',
-                         _get_key_args(with_kwargs, None, None, [], {'kwarg1': '1', 'kwarg2': '2'}))
-        self.assertEqual('(v1, v2, kwarg1 = 1, kwarg2 = 2)',
-                         _get_key_args(with_both, None, None, ['v1', 'v2'], {'kwarg1': 1, 'kwarg2': 2}))
+        self.assertEqual('(a=x, b=y, c=z)', _get_function_arg_str(with_args, ['x', 'y', 'z'], {}, None, []))
+        self.assertEqual('(x=_X_, y=_Y_, z=None)',
+                         _get_function_arg_str(with_kwargs, [], {'x': '_X_', 'y': '_Y_'}, None, []))
+        self.assertEqual('(arg1=v1, arg2=v2, kwarg1=1, kwarg2=2)',
+                         _get_function_arg_str(with_both, ['v1', 'v2'], {'kwarg1': 1, 'kwarg2': 2}, None, []))
 
     def test_no_args(self):
-        self.assertEqual('()', _get_key_args(with_args, [], None, [], {}))
-        self.assertEqual('()', _get_key_args(with_kwargs, [], None, [], {}))
-        self.assertEqual('()', _get_key_args(with_both, [], None, [], {}))
+        self.assertEqual('()', _get_function_arg_str(with_args, [], {}, [], None))
+        self.assertEqual('()', _get_function_arg_str(with_kwargs, [], {}, [], None))
+        self.assertEqual('()', _get_function_arg_str(with_both, [], {}, [], None))
 
     def test_use_some(self):
-        self.assertEqual('(first)', _get_key_args(with_args, ['a'], None, ['first', 'second', 'third'], {'hello': 1}))
-        self.assertEqual('(arg1v, kwarg1 = v)',
-                         _get_key_args(with_both, ['arg1', 'kwarg1'], None, ['arg1v'], {'kwarg1': 'v'}))
+        self.assertEqual('(a=first)', _get_function_arg_str(with_args,
+                                                            ['first', 'second', 'third'],
+                                                            {'hello': 1},
+                                                            ['a'],
+                                                            None))
+        self.assertEqual('(arg1=arg1v, kwarg1=v)',
+                         _get_function_arg_str(with_both, ['arg1v'], {'kwarg1': 'v'}, ['arg1', 'kwarg1'], None))
 
     def test_ignore_some(self):
-        self.assertEqual('(3)', _get_key_args(with_args, None, ['a', 'b'], ['1', '2', '3'], None))
-        self.assertEqual('(x = 3, y = 2)', _get_key_args(with_kwargs, None, ['z'], None, {'x': 3, 'y': 2}))
-        self.assertEqual('(hello, kwarg2 = kw2)',
-                         _get_key_args(with_both,
-                                       None,
-                                       ['arg1', 'kwarg1'],
-                                       ['yo', 'hello'],
-                                       {'kwarg1': 'kw1', 'kwarg2': 'kw2'}))
+        self.assertEqual('(c=3)', _get_function_arg_str(with_args, ['1', '2', '3'], None, None, ['a', 'b']))
+        self.assertEqual('(x=3, y=2)', _get_function_arg_str(with_kwargs, None, {'x': 3, 'y': 2}, None, ['z']))
+        self.assertEqual('(arg2=hello, kwarg2=kw2)',
+                         _get_function_arg_str(with_both,
+                                               ['yo', 'hello'],
+                                               {'kwarg1': 'kw1', 'kwarg2': 'kw2'},
+                                               None,
+                                               ['arg1', 'kwarg1']))
 
     def test_wrong_args(self):
-        self.assertEqual('()', _get_key_args(with_args, ['a1', 'b1'], ['yes', 'yep'], {}, []))
+        self.assertEqual('()', _get_function_arg_str(with_args, {}, [], ['a1', 'b1'], ['yes', 'yep']))
 
 
 class TestUpdateDicts(unittest.TestCase):
@@ -84,7 +94,7 @@ class TestUpdateDicts(unittest.TestCase):
         t = {2: 'c', 4: 'd'}
         copy_o = deepcopy(o)
         copy_t = deepcopy(t)
-        c = _update_dicts(o, t)
+        c = update_dicts(o, t)
         copy_o.update(copy_t)
         self.assertEqual(c, copy_o)
 
@@ -93,7 +103,7 @@ class TestUpdateDicts(unittest.TestCase):
         t = {2: 'c', 4: 'd'}
         n1 = {5: 'e', 6: 'f', 'n': o}
         n2 = {5: 'f', 6: 'f', 'n': t}
-        c = _update_dicts(n1, n2)
+        c = update_dicts(n1, n2)
         n1.update(n2)
         self.assertNotEqual(c, n1)
 
@@ -102,11 +112,21 @@ class TestUpdateDicts(unittest.TestCase):
         t = {2: 'c', 4: 'd'}
         n1 = {5: 'e', 6: 'f', 'n': o}
         n2 = {5: 'f', 6: 'f', 'n': t}
-        c = _update_dicts(n1, n2)
+        c = update_dicts(n1, n2)
         n2.pop('n')
         n1.update(n2)
         o.update(t)
         self.assertEqual(c, n1)
+
+    def test_update_multiple_dicts(self):
+        one = {1: 'a', 2: 'b'}
+        two = {2: 'c', 3: 'd'}
+        three = {2: 'e', 4: 'f'}
+        test = deepcopy(one)
+        test.update(two)
+        test.update(three)
+        c = update_dicts(one, two, three)
+        self.assertEqual(c, test)
 
 
 class TestCacheDecorator(unittest.TestCase):
@@ -121,55 +141,108 @@ class TestCacheDecorator(unittest.TestCase):
     def tearDown(self):
         self.stash.stop()
 
-    def test_works(self):
-        decorated = cache_decorator(enabled=True)(self.mock)
+    def test_enabled(self):
+        f = StringIO('''
+cached:
+    defaults:
+        enabled: true
+        use_cache: true
+        ''')
+
+        decorated = cache_decorator(config_file=f)(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
         self.mock.assert_called_once()
 
-    def test_enabled(self):
-        decorated = cache_decorator(enabled=False)(self.mock)
+    def test_not_enabled(self):
+        f = StringIO('''
+cached:
+    defaults:
+        enabled: false
+        use_cache: true
+                ''')
+
+        decorated = cache_decorator(config_file=f)(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 2)
 
     def test_use_cache(self):
-        decorated = cache_decorator(use_cache=True)(self.mock)
+        f = StringIO('''
+cached:
+    defaults:
+        use_cache: true
+                ''')
+        decorated = cache_decorator(config_file=f)(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 1)
         self.mock.reset_mock()
-        decorated = cache_decorator(use_cache=False)(self.mock)
+        f = StringIO('''
+cached:
+    defaults:
+        use_cache: false
+                ''')
+        decorated = cache_decorator(config_file=f)(self.mock)
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 2)
 
     def test_reset(self):
-        decorated = cache_decorator(use_cache=True, overrides={OverrideOnlyKwargs.Reset: False})(self.mock)
+        f = StringIO('''
+cached:
+    defaults:
+        use_cache: true
+        reset: false
+    groups:
+        one:
+            use_cache: true
+                ''')
+        decorated = cache_decorator(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 1)
         self.mock.reset_mock()
-        decorated = cache_decorator(use_cache=True, overrides={OverrideOnlyKwargs.Reset: True})(self.mock)
+        f = StringIO('''
+cached:
+    defaults:
+        use_cache: true
+        reset: true
+    groups:
+        one:
+            use_cache: true
+                ''')
+        decorated = cache_decorator(config_file=f, group='one')(self.mock)
         self.mock.return_value = 32
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 2)
 
     def test_args(self):
-        decorated = cache_decorator()(self.mock)
+        f = StringIO('''
+cached:
+    defaults:
+        use_cache: true
+                ''')
+        decorated = cache_decorator(config_file=f)(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello again')
-        self.assertEqual(self.mock.call_count, 2)
-        self.assertEqual(len(self.store.data), 2)
+        self.assertEqual(self.mock.call_count, 1)
+        self.assertEqual(len(self.store.data), 1)
 
     def test_key_prefix(self):
-        decorated = cache_decorator(key_prefix='yo')(self.mock)
+        f = StringIO('''
+cached:
+    defaults:
+        use_cache: true
+        key_prefix: yo
+                        ''')
+        decorated = cache_decorator(config_file=f)(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello again')
@@ -178,11 +251,79 @@ class TestCacheDecorator(unittest.TestCase):
 
 class TestGetOverrides(unittest.TestCase):
 
-    def test_overrides(self):
-        overrides = {OverridableKwargs.Use_Cache: True}
-        group_overrides = {'A': {OverridableKwargs.Use_Cache: False}}
-        o = _get_overrides(overrides, group_overrides, 'A')
-        self.assertFalse(o[OverridableKwargs.Use_Cache])
+    def setUp(self):
+        self.store = MemoryStore()
+        self.stash = mock.patch('reiteration.cache.stash', self.store)
+        self.stash.start()
+        self.mock = mock.Mock()
+        self.mock.__qualname__ = 'qualname'
+        self.mock.__name__ = 'unit_test_get_overrides'
+
+    def test_group_overrides(self):
+        f = StringIO("""
+    cached:
+        defaults:
+            use_cache: false
+        groups:
+            one:
+                use_cache: true
+            """)
+        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        self.mock.return_value = 3
+        decorated('hello')
+        decorated('hello')
+        self.assertEqual(self.mock.call_count, 1)
+
+    def test_methods_overrides(self):
+        f = StringIO("""
+    cached:
+        defaults:
+            use_cache: false
+        methods:
+            unit_test_get_overrides:
+                use_cache: true
+            """)
+        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        self.mock.return_value = 3
+        decorated('hello')
+        decorated('hello')
+        self.assertEqual(self.mock.call_count, 1)
+
+    def test_method_key_args(self):
+        f = StringIO("""
+    cached:
+        defaults:
+            use_cache: false
+        methods:
+            with_both:
+                use_cache: true
+                key_args: 
+                    - arg1 
+            """)
+        mock_function = create_autospec(with_both, return_value='whateva')
+        decorated = cache_decorator(config_file=f, group='one')(mock_function)
+        decorated('hello', 'whatever', kwarg1='yo')
+        decorated('hello', 'whatever2', kwarg2='yo2')
+        self.assertEqual(mock_function.call_count, 1)
+
+        decorated('hello', 'whatever', 'yo')
+        decorated('hello', 'whatever2', 'yo2')
+        self.assertEqual(mock_function.call_count, 1)
+
+    def test_method_ignore_key_args(self):
+        f = StringIO("""
+    cached:
+        defaults:
+            use_cache: false
+        methods:
+            unit_test_get_overrides:
+                use_cache: true
+            """)
+        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        self.mock.return_value = 3
+        decorated('hello')
+        decorated('hello')
+        self.assertEqual(self.mock.call_count, 1)
 
 
 if __name__ == '__main__':

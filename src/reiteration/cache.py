@@ -1,176 +1,124 @@
 import inspect
 import os
-from collections import defaultdict
-from collections.abc import Mapping
+import re
 from copy import copy
-from copy import deepcopy
 from functools import wraps
 from hashlib import md5
 
 from reiteration.storage import SqliteStore
+from reiteration.utils import update_dicts, gattr, get_config
 
 DEFAULT_DIR = os.path.expanduser('~/.reiteration')
 
 stash = SqliteStore(DEFAULT_DIR)
 
 
-class OverridableKwargs:
+class FileSections:
+    Cached = 'cached'
+    Defaults = 'defaults'
+    Groups = 'groups'
+    Methods = 'methods'
+
+
+class Properties:
     Enabled = 'enabled'
     Use_Cache = 'use_cache'
     Verbose = 'verbose'
     Key_Prefix = 'key_prefix'
-    # Ignore_Key_Args = 'ignore_key_args'  #These don't make sense right?
-    # Key_Args = 'key_args'
-
-
-class OverrideOnlyKwargs:
     Reset = 'reset'
 
 
-def _update_dicts(base, the_update):
-    if not isinstance(base, dict) or not isinstance(the_update, dict):
-        raise TypeError(f'Both items should be dictionaries: {type(base)}, {type(the_update)}')
-    base = deepcopy(base)
-    for k, v in the_update.items():
-        if isinstance(v, Mapping):
-            i = base.get(k, {})
-            if isinstance(i, Mapping):
-                base[k] = _update_dicts(i, v)
-            else:
-                base[k] = v
-        else:
-            base[k] = v
-    return base
+class FunctionProperties:
+    Ignore_Key_Args = 'ignore_key_args'
+    Key_Args = 'key_args'
+    MatchMultiple = 'match_multiple'
 
 
-def _no_cache_args(key_args):
-    return isinstance(key_args, (tuple, list, set)) and len(key_args) == 0
+def _resolve_props(config, group, function_name):
+    props = gattr(config, FileSections.Cached, FileSections.Defaults)
+    group_overrides = gattr(config, FileSections.Cached, FileSections.Groups, default={}).get(group, {})
+    function_overrides = _get_function_props(config, function_name)
+
+    if Properties.Reset in group_overrides or Properties.Reset in function_overrides:
+        print('Kwarg reset found in group_overrides, this is an override property only.  Ignoring')
+        try:
+            group_overrides.pop(Properties.Reset)
+        except:
+            pass
+        try:
+            function_overrides.pop(Properties.Reset)
+        except:
+            pass
+    return update_dicts(props, group_overrides, function_overrides)
 
 
-def _get_key_args(func, key_args, ignore_key_args, arg_vals, kwargs_vals, verbose=False):
-    arg_vals = copy(arg_vals) or []
-    arg_vals = copy(arg_vals) or []
+def _get_function_arg_str(func, function_args, function_kwargs, key_args=None, ignore_key_args=None, verbose=False):
+    function_args = copy(function_args) or []
+    function_kwargs = copy(function_kwargs) or {}
+    # if ignore_key_args is [] want to include all parameters
+    if not key_args and ignore_key_args is None:
 
-    kwargs_vals = copy(kwargs_vals) or {}
-    offset = 0
-    if hasattr(func, '__self__'):
-        arg_vals = arg_vals[1:]
-        offset = 1
-    if _no_cache_args(key_args):
         if verbose:
-            print('key_args set to empty list.  Not keying with any args')
+            print('key_args empty.  Not keying with any args')
         return '()'
+
     key_args = key_args or []
     ignore_key_args = ignore_key_args or []
 
-    spec = inspect.getfullargspec(func)
-    border = None if not spec.defaults else len(spec.defaults)
-    arg_names = spec.args[offset:border]
-    kwarg_names = spec.args[border:]
-    args = []
+    parameters = list(inspect.signature(func).parameters.values())
+    if hasattr(func, '__self__'):
+        function_args = function_args[1:]
 
-    use_args = defaultdict(lambda: False) if key_args else defaultdict(lambda: True)
-    for index, arg in enumerate(arg_names):
-        if arg in ignore_key_args:
-            use_args[index] = False
+    arg_to_value = {k.name: v for k, v in zip(parameters, function_args)}
+    for param in parameters[len(function_args):]:
+        if param.name in function_kwargs:
+            arg_to_value[param.name] = function_kwargs[param.name]
+        else:
+            if param.default != inspect._empty:
+                arg_to_value[param.name] = param.default
+    if key_args:
+        arg_to_value = {k: v for k, v in arg_to_value.items() if k in key_args}
+    else:
+        arg_to_value = {k: v for k, v in arg_to_value.items() if k not in ignore_key_args}
 
-        if arg in key_args:
-            use_args[index] = True
+    result = []
+    for k, v in arg_to_value.items():
+        result.append(f'{k}={md5(str(v).encode("utf-8")).hexdigest()}')
 
-    for kwarg in kwarg_names:
-        if kwarg in ignore_key_args:
-            use_args[kwarg] = False
-
-        if kwarg in key_args:
-            use_args[kwarg] = True
-
-    # This relies on the fact that all kwargs are strings and names have to be unique across args and kwargs
-    use_args.update({k: False for k in ignore_key_args})
-
-    for index, arg in enumerate(arg_vals):
-        if not use_args[index]:
-            continue
-        args.append(md5(str(arg).encode("utf-8")).hexdigest())
-    for k, v in kwargs_vals.items():
-        if not use_args[k]:
-            continue
-        args.append(f'{k} = {md5(str(v).encode("utf-8")).hexdigest()}')
-    return f'({", ".join(args)})'
-
-
-#
-# def _get_arg_map(func, key_args, ignore_key_args, arg_vals, kwargs_vals, verbose=False):
-#     arg_vals = copy(arg_vals) or []
-#     kwargs_vals = copy(kwargs_vals) or {}
-#     offset = 0
-
-#
-#     argspec = inspect.getfullargspec(func)
-#     args_map = {k: v for k, v in zip(argspec.args[offset:], arg_vals)}
-#     args_map.update(kwargs_vals)
-#     if verbose:
-#         print(f'All method args {",".join(args_map.keys())}')
-#
-#     if _no_cache_args(key_args):
-#         if verbose:
-#             print('key_args set to empty list.  Not keying with any args')
-#         use_kwargs = defaultdict(lambda: False)
-#     else:
-#         ignore_key_args = ignore_key_args or []
-#         key_args = key_args or []
-#         if verbose:
-#             print(f'key_args, ignore_key_args: {key_args}, {ignore_key_args}')
-#
-#         use_kwargs = defaultdict(lambda: False) if key_args else defaultdict(lambda: True)
-#         use_kwargs.update({k: True for k in key_args})
-#         use_kwargs.update({k: False for k in ignore_key_args})
-#     result = {k: v for k, v in args_map.items() if use_kwargs[k]}
-#     if verbose:
-#         print(f'Will key with: {",".join(result.keys())}')
-#     return result
-#
-#
-# def _get_arg_keys(arg_map):
-#     d = [f'{k} = {md5(str(v).encode("utf-8")).hexdigest()}' for k, v in arg_map.items()]
-#     return f'({",".join(d)})'
+    return f'({", ".join(result)})'
 
 
 def _get_overrides(overrides, group_overrides, group):
     group_overrides = group_overrides.get(group) or {}
-    return _update_dicts(overrides, group_overrides)
+    return update_dicts(overrides, group_overrides)
 
 
-def cache_decorator(group=None,
-                    enabled=None,
-                    use_cache=None,
-                    verbose=None,
-                    group_overrides=None,
-                    key_args: list = None,
-                    key_prefix=None,
-                    ignore_key_args: list = None,
-                    overrides=None):
-    overrides = overrides or {}
-    group_overrides = group_overrides or {}
+def _get_function_props(config, function_name):
+    functions = config.get('cached', {}).get('methods', {})
+    function_configs = []
+    for k, v in functions.items():
+        if function_name.endswith(k) or re.match(k, function_name):
+            if not function_configs:
+                function_configs.append(v)
+            elif v.get(FunctionProperties.MatchMultiple):
+                function_configs.append(v)
+            else:
+                print(f'Ignoring multiple match on key: {k} for function config: {v}')
+    return update_dicts({}, *function_configs)
 
-    if OverrideOnlyKwargs.Reset in group_overrides:
-        print('Kwarg reset found in group_overrides, this is an override property only.  Ignoring')
 
-    reset = overrides.get(OverrideOnlyKwargs.Reset)
-    overrides = _get_overrides(overrides, group_overrides, group)
-
-    if enabled is None:
-        enabled = overrides.get(OverridableKwargs.Enabled, True)
-    if use_cache is None:
-        use_cache = overrides.get(OverridableKwargs.Use_Cache, True)
-    if verbose is None:
-        verbose = overrides.get(OverridableKwargs.Verbose, True)
-    if key_prefix is None:
-        key_prefix = overrides.get(OverridableKwargs.Key_Prefix)
-
-    if verbose:
-        print(f'Used overrides: {overrides}')
+def cache_decorator(config_file=None, group=None):
+    config = get_config(config_file)
 
     def decorator(func):
+        function_name = f'{func.__module__}.{func.__qualname__}.{func.__name__}'
+        props = _resolve_props(config, group, function_name)
+        reset = props.get(Properties.Reset)
+        enabled = props.get(Properties.Enabled, True)
+        use_cache = props.get(Properties.Use_Cache, True)
+        verbose = props.get(Properties.Verbose, True)
+        if verbose:
+            print(f'Using props: {props}')
         if not enabled:
             if verbose:
                 print(f'stash_decorator not enabled. Not stashing')
@@ -183,9 +131,15 @@ def cache_decorator(group=None,
 
         @wraps(func)
         def wrap(*args, **kwargs):
+            function_name = f'{func.__module__}.{func.__qualname__}.{func.__name__}'
+            props = _resolve_props(config, group, function_name)
+            key_prefix = props.get(Properties.Key_Prefix)
+
             kp = key_prefix + '.' if key_prefix else ''
-            args_str = _get_key_args(func, key_args, ignore_key_args, args, kwargs)
-            key = f'{kp}{func.__module__}.{func.__qualname__}.{func.__name__}{args_str}'
+            key_args = props.get(FunctionProperties.Key_Args)
+            ignore_key_args = props.get(FunctionProperties.Ignore_Key_Args)
+            args_str = _get_function_arg_str(func, args, kwargs, key_args, ignore_key_args)
+            key = f'{kp}{function_name}{args_str}'
 
             if not enabled:
                 if verbose:
@@ -204,3 +158,11 @@ def cache_decorator(group=None,
         return wrap
 
     return decorator
+
+
+if __name__ == '__main__':
+    def test(a, b, hello='yo', sup=None):
+        pass
+
+
+    print(_get_function_arg_str(test, ('0', '1'), {'sup': 'sup yo'}, key_args=('a', 'hello')))
