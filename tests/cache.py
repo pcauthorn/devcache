@@ -5,9 +5,9 @@ from unittest import mock
 from unittest.mock import create_autospec
 from unittest.mock import patch
 
-from reiteration.cache import _get_function_arg_str, cache_decorator
-from reiteration.storage import MemoryStore
-from reiteration.utils import update_dicts
+from devcache.cache import _get_function_arg_str, cache_decorator
+from devcache.storage import MemoryStore
+from devcache.utils import update_dicts
 
 
 def with_args(a, b, c):
@@ -36,7 +36,7 @@ class Md5Patch:
 class TestGetArgs(unittest.TestCase):
 
     def setUp(self):
-        self.md5_patch = patch('reiteration.cache.md5', Md5Patch)
+        self.md5_patch = patch('devcache.cache.md5', Md5Patch)
         self.md5_patch.start()
 
     def tearDown(self):
@@ -132,7 +132,7 @@ class TestUpdateDicts(unittest.TestCase):
 class TestCacheDecorator(unittest.TestCase):
     def setUp(self):
         self.store = MemoryStore()
-        self.stash = mock.patch('reiteration.cache.stash', self.store)
+        self.stash = mock.patch('devcache.cache.stash', self.store)
         self.stash.start()
         self.mock = mock.Mock()
         self.mock.__qualname__ = 'qualname'
@@ -229,7 +229,7 @@ class TestMatching(unittest.TestCase):
 
     def setUp(self):
         self.store = MemoryStore()
-        self.stash = mock.patch('reiteration.cache.stash', self.store)
+        self.stash = mock.patch('devcache.cache.stash', self.store)
         self.stash.start()
         self.mock = mock.Mock()
         self.mock.__qualname__ = 'qualname'

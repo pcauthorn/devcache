@@ -9,7 +9,7 @@ from hashlib import md5
 
 import yaml
 
-from reiteration.storage import SqliteStore
+from devcache.storage import SqliteStore
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)

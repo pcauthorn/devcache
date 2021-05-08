@@ -3,7 +3,7 @@ import unittest
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
-from reiteration.storage import SqliteStore
+from devcache.storage import SqliteStore
 
 
 class PickleMe:
