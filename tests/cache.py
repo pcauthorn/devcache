@@ -4,8 +4,8 @@ from io import StringIO
 from unittest import mock
 from unittest.mock import create_autospec
 from unittest.mock import patch
-
-from devcache.cache import _get_function_arg_str, cache_decorator
+from devcache import devcache
+from devcache.cache import _get_function_arg_str
 from devcache.storage import MemoryStore
 from devcache.utils import update_dicts
 
@@ -151,7 +151,7 @@ props:
 
         ''')
 
-        decorated = cache_decorator(config_file=f, group='test')(self.mock)
+        decorated = devcache(config_file=f, group='test')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -166,7 +166,7 @@ props:
         use_cached: true 
 ''')
 
-        decorated = cache_decorator(config_file=f, group='test')(self.mock)
+        decorated = devcache(config_file=f, group='test')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -179,7 +179,7 @@ props:
         group: test
         use_cache: true
                 ''')
-        decorated = cache_decorator(config_file=f, group='test')(self.mock)
+        decorated = devcache(config_file=f, group='test')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -191,7 +191,7 @@ props:
         group: test2
         use_cache: false
                 ''')
-        decorated = cache_decorator(config_file=f, group='test2')(self.mock)
+        decorated = devcache(config_file=f, group='test2')(self.mock)
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 2)
@@ -204,7 +204,7 @@ props:
         group: one
         use_cache: true
                 ''')
-        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        decorated = devcache(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -218,7 +218,7 @@ props:
         group: one
         use_cache: true
                         ''')
-        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        decorated = devcache(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello again')
@@ -245,7 +245,7 @@ props:
         group: one
         use_cache: true
             """)
-        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        decorated = devcache(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -261,7 +261,7 @@ props:
         group: one
         use_cache: false
             """)
-        decorated = cache_decorator(config_file=f, group='one')(self.mock)
+        decorated = devcache(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -275,7 +275,7 @@ props:
         use_cache: true
             """)
         mock_function = create_autospec(with_both, return_value='whateva')
-        decorated = cache_decorator(config_file=f, key_args=['arg1'], group='one')(mock_function)
+        decorated = devcache(config_file=f, key_args=['arg1'], group='one')(mock_function)
         decorated('hello', 'whatever', kwarg1='yo')
         decorated('hello2', 'whatever', kwarg2='yo2')
         self.assertEqual(mock_function.call_count, 2)
@@ -293,7 +293,7 @@ props:
 
             """)
         mock_function = create_autospec(with_both, return_value='whateva')
-        decorated = cache_decorator(config_file=f, group='one', ignore_key_args=['kwarg1'])(mock_function)
+        decorated = devcache(config_file=f, group='one', ignore_key_args=['kwarg1'])(mock_function)
         mock_function.return_value = 3
         decorated('hello', 'arg2', kwarg1='yo')
         decorated('hello', 'arg2', kwarg1='sup')

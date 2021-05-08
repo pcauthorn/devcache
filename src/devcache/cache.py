@@ -114,7 +114,7 @@ def _get_function_arg_str(func, function_args, function_kwargs, key_args=None, i
     return f'({", ".join(result)})'
 
 
-def cache_decorator(config_file=None, group=None, key_args=None, ignore_key_args=None):
+def devcache(config_file=None, group=None, key_args=None, ignore_key_args=None):
     config = get_config(config_file or DEFAULT_CONFIG)
 
     def decorator(func):
