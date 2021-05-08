@@ -1,8 +1,5 @@
-import os
 from copy import deepcopy
 from typing import Mapping
-
-import yaml
 
 
 def update_dicts(base, *the_updates):
@@ -37,13 +34,3 @@ def gattr(obj, *args, callback=None, default=None, invoke_callables=False):
         return cb(obj)
     except (AttributeError, IndexError, KeyError, TypeError):
         return default
-
-
-def get_config(config_file):
-    if hasattr(config_file, 'read'):
-        config = yaml.safe_load(config_file)
-    else:
-        if config_file and not (config_file.startswith('/') or config_file.startswith('\\')):
-            config_file = os.path.join(os.path.expanduser('~/.reiteration'), config_file)
-        config = yaml.safe_load(open(os.path.expanduser(config_file or '~/.reiteration/cache.yaml')))
-    return config

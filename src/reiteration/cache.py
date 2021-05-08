@@ -1,55 +1,82 @@
 import inspect
+import logging
 import os
 import re
+import sys
 from copy import copy
 from functools import wraps
 from hashlib import md5
 
-from reiteration.storage import SqliteStore
-from reiteration.utils import update_dicts, gattr, get_config
+import yaml
 
-DEFAULT_DIR = os.path.expanduser('~/.reiteration')
+from reiteration.storage import SqliteStore
+
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+logger.setLevel(logging.INFO)
+
+DEFAULT_DIR = os.path.expanduser(r'~\.devcache')
+
+DEFAULT_CONFIG = os.path.join(DEFAULT_DIR, 'devcache.yaml')
 
 stash = SqliteStore(DEFAULT_DIR)
 
-
-class FileSections:
-    Cached = 'cached'
-    Defaults = 'defaults'
-    Groups = 'groups'
-    Methods = 'methods'
+configs = {}
 
 
-class Properties:
-    Enabled = 'enabled'
-    Use_Cache = 'use_cache'
-    Verbose = 'verbose'
-    Key_Prefix = 'key_prefix'
-    Reset = 'reset'
-
-
-class FunctionProperties:
-    Ignore_Key_Args = 'ignore_key_args'
-    Key_Args = 'key_args'
-    MatchMultiple = 'match_multiple'
-
-
-def _resolve_props(config, group, function_name):
-    props = gattr(config, FileSections.Cached, FileSections.Defaults)
-    group_overrides = gattr(config, FileSections.Cached, FileSections.Groups, default={}).get(group, {})
-    function_overrides = _get_function_props(config, function_name)
-
-    if Properties.Reset in group_overrides or Properties.Reset in function_overrides:
-        print('Kwarg reset found in group_overrides, this is an override property only.  Ignoring')
+def get_config(file_name):
+    if isinstance(file_name, str):
+        config = configs.get(file_name)
+        if not config:
+            try:
+                with open(file_name) as f:
+                    config = yaml.safe_load(f)
+            except Exception as e:
+                logger.warning(f'Could not load file_name: {file_name}.  Disabling')
+                config = {'enabled': False}
+    else:
         try:
-            group_overrides.pop(Properties.Reset)
-        except:
-            pass
-        try:
-            function_overrides.pop(Properties.Reset)
-        except:
-            pass
-    return update_dicts(props, group_overrides, function_overrides)
+            config = yaml.safe_load(file_name)
+        except Exception as e:
+            logger.warning(f'Could not load supplied file: {file_name}.  Disabling')
+            config = {'enabled': False}
+    configs[file_name] = config
+    return config
+
+
+def _resolve_props(config, function_group, key):
+    for k, v in sorted(config.get('props', {}).items()):
+        valid_keys = {'enabled', 'use_cache', 'group', 'pattern'}
+        extra_keys = set(v.keys()) - valid_keys
+        if extra_keys:
+            logger.warning(f'{v} contains extra keys:  {",".join(extra_keys)}')
+            logger.warning(f'Valid keys:  {",".join(valid_keys)}')
+            logger.warning(f'Skipping...')
+            continue
+        group = v.get('group') or None
+        pattern = v.get('pattern') or None
+        enabled = v.get('enabled', True)
+        if not enabled:
+            logger.info(f'{v} not enabled... skipping')
+            continue
+        if group and group == function_group:
+            if not pattern:
+                return v
+            try:
+                if re.match(pattern, key):
+                    return v
+            except:
+                logger.warning(f'Pattern {pattern} for rule {k}, failed.  Ignoring')
+
+        if pattern:
+            try:
+                if re.match(pattern, key):
+                    return v
+            except:
+                logger.warning(f'Pattern {pattern} for rule {k}, failed.  Ignoring')
+
+    return {}
 
 
 def _get_function_arg_str(func, function_args, function_kwargs, key_args=None, ignore_key_args=None, verbose=False):
@@ -57,7 +84,6 @@ def _get_function_arg_str(func, function_args, function_kwargs, key_args=None, i
     function_kwargs = copy(function_kwargs) or {}
     # if ignore_key_args is [] want to include all parameters
     if not key_args and ignore_key_args is None:
-
         if verbose:
             print('key_args empty.  Not keying with any args')
         return '()'
@@ -88,40 +114,24 @@ def _get_function_arg_str(func, function_args, function_kwargs, key_args=None, i
     return f'({", ".join(result)})'
 
 
-def _get_overrides(overrides, group_overrides, group):
-    group_overrides = group_overrides.get(group) or {}
-    return update_dicts(overrides, group_overrides)
-
-
-def _get_function_props(config, function_name):
-    functions = config.get('cached', {}).get('methods', {})
-    function_configs = []
-    for k, v in functions.items():
-        if function_name.endswith(k) or re.match(k, function_name):
-            if not function_configs:
-                function_configs.append(v)
-            elif v.get(FunctionProperties.MatchMultiple):
-                function_configs.append(v)
-            else:
-                print(f'Ignoring multiple match on key: {k} for function config: {v}')
-    return update_dicts({}, *function_configs)
-
-
-def cache_decorator(config_file=None, group=None):
-    config = get_config(config_file)
+def cache_decorator(config_file=None, group=None, key_args=None, ignore_key_args=None):
+    config = get_config(config_file or DEFAULT_CONFIG)
 
     def decorator(func):
         function_name = f'{func.__module__}.{func.__qualname__}.{func.__name__}'
         props = _resolve_props(config, group, function_name)
-        reset = props.get(Properties.Reset)
-        enabled = props.get(Properties.Enabled, True)
-        use_cache = props.get(Properties.Use_Cache, True)
-        verbose = props.get(Properties.Verbose, True)
-        if verbose:
-            print(f'Using props: {props}')
-        if not enabled:
-            if verbose:
-                print(f'stash_decorator not enabled. Not stashing')
+        if not props:
+            logger.warning(f'Not props found for group/function_name:  {group}/{function_name}.  Not caching')
+        enabled = config.get('enabled', True)
+        key_prefix = config.get('key_prefix')
+        logger.info(f'using props: {props} for group/function_name:  {group}/{function_name}')
+        if enabled:
+            enabled = props.get('enabled', True)
+        use_cache = props.get('use_cache', True)
+        refresh = config.get('refresh')
+        if not props or not enabled:
+            if not enabled:
+                logger.info(f'stash_decorator not enabled. Not stashing')
 
             @wraps(func)
             def _pass(*args, **kwargs):
@@ -131,27 +141,16 @@ def cache_decorator(config_file=None, group=None):
 
         @wraps(func)
         def wrap(*args, **kwargs):
-            function_name = f'{func.__module__}.{func.__qualname__}.{func.__name__}'
-            props = _resolve_props(config, group, function_name)
-            key_prefix = props.get(Properties.Key_Prefix)
-
-            kp = key_prefix + '.' if key_prefix else ''
-            key_args = props.get(FunctionProperties.Key_Args)
-            ignore_key_args = props.get(FunctionProperties.Ignore_Key_Args)
+            kp = f'{key_prefix}.' if key_prefix else ''
             args_str = _get_function_arg_str(func, args, kwargs, key_args, ignore_key_args)
             key = f'{kp}{function_name}{args_str}'
 
-            if not enabled:
-                if verbose:
-                    print('cache decorator not enabled')
-                return func(*args, **kwargs)
-            if not reset and use_cache and stash.exists(key):
-                if verbose:
-                    print(f'retrieving {key} from cache')
+            if not refresh and use_cache and stash.exists(key):
+                logger.info(f'retrieving {key} from cache')
                 return stash.get(key)
+
             result = func(*args, **kwargs)
-            if verbose:
-                print(f'will stash {key}')
+            logger.info(f'will stash to key (refresh: {refresh}): {key}. obj: {str(result)[:25]}')
             stash.store(key, result, tag=group)
             return result
 

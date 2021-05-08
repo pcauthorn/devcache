@@ -2,8 +2,8 @@ import unittest
 from copy import deepcopy
 from io import StringIO
 from unittest import mock
-from unittest.mock import patch
 from unittest.mock import create_autospec
+from unittest.mock import patch
 
 from reiteration.cache import _get_function_arg_str, cache_decorator
 from reiteration.storage import MemoryStore
@@ -143,13 +143,15 @@ class TestCacheDecorator(unittest.TestCase):
 
     def test_enabled(self):
         f = StringIO('''
-cached:
-    defaults:
-        enabled: true
-        use_cache: true
+enabled: true
+props:
+    1: 
+        group: test
+        use_cache: true 
+
         ''')
 
-        decorated = cache_decorator(config_file=f)(self.mock)
+        decorated = cache_decorator(config_file=f, group='test')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -157,13 +159,14 @@ cached:
 
     def test_not_enabled(self):
         f = StringIO('''
-cached:
-    defaults:
-        enabled: false
-        use_cache: true
-                ''')
+enabled: false
+props:
+    1: 
+        group: test
+        use_cached: true 
+''')
 
-        decorated = cache_decorator(config_file=f)(self.mock)
+        decorated = cache_decorator(config_file=f, group='test')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
@@ -171,85 +174,58 @@ cached:
 
     def test_use_cache(self):
         f = StringIO('''
-cached:
-    defaults:
+props:
+    1:
+        group: test
         use_cache: true
                 ''')
-        decorated = cache_decorator(config_file=f)(self.mock)
+        decorated = cache_decorator(config_file=f, group='test')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 1)
         self.mock.reset_mock()
         f = StringIO('''
-cached:
-    defaults:
+props:
+    1: 
+        group: test2
         use_cache: false
                 ''')
-        decorated = cache_decorator(config_file=f)(self.mock)
+        decorated = cache_decorator(config_file=f, group='test2')(self.mock)
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 2)
 
     def test_reset(self):
         f = StringIO('''
-cached:
-    defaults:
+reset: true
+props:
+    1: 
+        group: one
         use_cache: true
-        reset: false
-    groups:
-        one:
-            use_cache: true
                 ''')
         decorated = cache_decorator(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello')
         self.assertEqual(self.mock.call_count, 1)
-        self.mock.reset_mock()
-        f = StringIO('''
-cached:
-    defaults:
-        use_cache: true
-        reset: true
-    groups:
-        one:
-            use_cache: true
-                ''')
-        decorated = cache_decorator(config_file=f, group='one')(self.mock)
-        self.mock.return_value = 32
-        decorated('hello')
-        decorated('hello')
-        self.assertEqual(self.mock.call_count, 2)
-
-    def test_args(self):
-        f = StringIO('''
-cached:
-    defaults:
-        use_cache: true
-                ''')
-        decorated = cache_decorator(config_file=f)(self.mock)
-        self.mock.return_value = 3
-        decorated('hello')
-        decorated('hello again')
-        self.assertEqual(self.mock.call_count, 1)
-        self.assertEqual(len(self.store.data), 1)
 
     def test_key_prefix(self):
         f = StringIO('''
-cached:
-    defaults:
+key_prefix: 'yo'
+props:
+    1: 
+        group: one
         use_cache: true
-        key_prefix: yo
                         ''')
-        decorated = cache_decorator(config_file=f)(self.mock)
+        decorated = cache_decorator(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
         decorated('hello')
         decorated('hello again')
         self.assertTrue(all([x.startswith('yo') for x in self.store.data]))
 
 
-class TestGetOverrides(unittest.TestCase):
+class TestMatching(unittest.TestCase):
 
     def setUp(self):
         self.store = MemoryStore()
@@ -259,14 +235,15 @@ class TestGetOverrides(unittest.TestCase):
         self.mock.__qualname__ = 'qualname'
         self.mock.__name__ = 'unit_test_get_overrides'
 
-    def test_group_overrides(self):
+    def test_group(self):
         f = StringIO("""
-    cached:
-        defaults:
-            use_cache: false
-        groups:
-            one:
-                use_cache: true
+props:
+    0: 
+        group: diff
+        use_cache: false
+    1: 
+        group: one
+        use_cache: true
             """)
         decorated = cache_decorator(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
@@ -274,14 +251,15 @@ class TestGetOverrides(unittest.TestCase):
         decorated('hello')
         self.assertEqual(self.mock.call_count, 1)
 
-    def test_methods_overrides(self):
+    def test_patterns(self):
         f = StringIO("""
-    cached:
-        defaults:
-            use_cache: false
-        methods:
-            unit_test_get_overrides:
-                use_cache: true
+props:
+    0: 
+        pattern: '.*unit_test_get_overrides.*'
+        use_cache: true
+    1: 
+        group: one
+        use_cache: false
             """)
         decorated = cache_decorator(config_file=f, group='one')(self.mock)
         self.mock.return_value = 3
@@ -291,39 +269,37 @@ class TestGetOverrides(unittest.TestCase):
 
     def test_method_key_args(self):
         f = StringIO("""
-    cached:
-        defaults:
-            use_cache: false
-        methods:
-            with_both:
-                use_cache: true
-                key_args: 
-                    - arg1 
+props:
+    0: 
+        group: one
+        use_cache: true
             """)
         mock_function = create_autospec(with_both, return_value='whateva')
-        decorated = cache_decorator(config_file=f, group='one')(mock_function)
+        decorated = cache_decorator(config_file=f, key_args=['arg1'], group='one')(mock_function)
         decorated('hello', 'whatever', kwarg1='yo')
-        decorated('hello', 'whatever2', kwarg2='yo2')
-        self.assertEqual(mock_function.call_count, 1)
+        decorated('hello2', 'whatever', kwarg2='yo2')
+        self.assertEqual(mock_function.call_count, 2)
 
         decorated('hello', 'whatever', 'yo')
-        decorated('hello', 'whatever2', 'yo2')
-        self.assertEqual(mock_function.call_count, 1)
+        decorated('hello2', 'whatever2', 'yo2')
+        self.assertEqual(mock_function.call_count, 2)
 
     def test_method_ignore_key_args(self):
         f = StringIO("""
-    cached:
-        defaults:
-            use_cache: false
-        methods:
-            unit_test_get_overrides:
-                use_cache: true
+props:
+    0: 
+        group: one
+        use_cache: true
+
             """)
-        decorated = cache_decorator(config_file=f, group='one')(self.mock)
-        self.mock.return_value = 3
-        decorated('hello')
-        decorated('hello')
-        self.assertEqual(self.mock.call_count, 1)
+        mock_function = create_autospec(with_both, return_value='whateva')
+        decorated = cache_decorator(config_file=f, group='one', ignore_key_args=['kwarg1'])(mock_function)
+        mock_function.return_value = 3
+        decorated('hello', 'arg2', kwarg1='yo')
+        decorated('hello', 'arg2', kwarg1='sup')
+        self.assertEqual(mock_function.call_count, 1)
+        decorated('hi', 'arg2', kwarg1='sup')
+        self.assertEqual(mock_function.call_count, 2)
 
 
 if __name__ == '__main__':
