@@ -12,18 +12,20 @@ def read(fname):
 with pathlib.Path('requirements.txt').open() as requirements_txt:
     install_requires = [str(requirement).strip() for requirement in pkg_resources.parse_requirements(requirements_txt)
                         if not str(requirement).strip().startswith('#')]
-
+print(find_packages('src'))
 setup(
     name='devcache',
-    version='1.0.0',
+    version='1.0.2',
     author='Patrick Cauthorn',
     author_email='patrick.cauthorn@gmail.com',
     description='Provides caching decorator to help speedup development',
     license='MIT',
     url='https://github.com/pcauthorn/devcache',
     install_requires=install_requires,
-    packages=find_packages(exclude=('tests',)),
+    package_dir={'': str('src')},
+    packages=find_packages('src'),
     long_description=read('README.md'),
+    long_description_content_type='text/markdown',
     classifiers=[
         'Topic :: Utilities',
         'License :: OSI Approved :: MIT License',
