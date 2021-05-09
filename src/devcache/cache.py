@@ -2,7 +2,6 @@ import inspect
 import logging
 import os
 import re
-import sys
 from copy import copy
 from functools import wraps
 from hashlib import md5
@@ -11,10 +10,7 @@ import yaml
 
 from devcache.storage import SqliteStore
 
-logging.basicConfig()
 logger = logging.getLogger(__name__)
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-logger.setLevel(logging.INFO)
 
 DEFAULT_DIR = os.path.expanduser(r'~\.devcache')
 
@@ -32,13 +28,13 @@ def get_config(file_name):
             try:
                 with open(file_name) as f:
                     config = yaml.safe_load(f)
-            except Exception as e:
+            except Exception:
                 logger.warning(f'Could not load file_name: {file_name}.  Disabling')
                 config = {'enabled': False}
     else:
         try:
             config = yaml.safe_load(file_name)
-        except Exception as e:
+        except Exception:
             logger.warning(f'Could not load supplied file: {file_name}.  Disabling')
             config = {'enabled': False}
     configs[file_name] = config
