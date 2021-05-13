@@ -1,5 +1,5 @@
 ﻿# devcache
-A configurable decorator allows methods to return persistently stored data from a cache instead of a normal call.
+A configurable decorator which allows methods to return persistently stored data from a cache instead of a normal call.
 
 The use case is to speed up development by caching data from long-running methods   
 
