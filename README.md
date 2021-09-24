@@ -69,7 +69,7 @@ props:
 
 ```
 
-Now the methods will pull data from the cache as ``use_cache`` is ``true``.  If a change was required to any saved data set the `use_cache` to ``false`` and data will be generated and stored fresh in the cache.
+Now the methods will pull data from the cache as ``use_cache`` is ``true``.  If a change is required to any saved data set the `use_cache` to ``false`` and data will be generated and stored fresh in the cache.
 
 Now using the cache each testing iteration takes seconds instead of minutes.
 
