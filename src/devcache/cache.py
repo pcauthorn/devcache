@@ -12,7 +12,7 @@ from devcache.storage import SqliteStore
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DIR = os.path.expanduser(r'~\.devcache')
+DEFAULT_DIR = os.path.expanduser(r'~/.devcache')
 
 DEFAULT_CONFIG = os.path.join(DEFAULT_DIR, 'devcache.yaml')
 
