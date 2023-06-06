@@ -4,6 +4,8 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 
+from platformdirs import user_cache_dir
+
 
 @contextmanager
 def cursor(connection):
@@ -41,7 +43,9 @@ class SqliteStore:
     def _get_now_str(self):
         return datetime.utcnow().isoformat()
 
-    def __init__(self, data_dir, db_file_name=None):
+    def __init__(self, data_dir=None, db_file_name=None):
+        if not data_dir:
+            data_dir = user_cache_dir()
         if not os.path.isdir(data_dir):
             os.mkdir(data_dir)
         path = os.path.expanduser(data_dir)
@@ -49,18 +53,18 @@ class SqliteStore:
         self.conn = sqlite3.connect(os.path.join(path, db_file_name))
         with cursor(self.conn) as c:
             c.execute('''CREATE TABLE IF NOT EXISTS data
-             (key text primary key, tag text, value text, timestamp text)''')
+             (key TEXT PRIMARY KEY, tag TEXT, value TEXT, timestamp TEXT)''')
 
     def store(self, key, obj, tag=None):
         obj_pickle = pickle.dumps(obj)
         with cursor(self.conn) as c:
             data = (str(key), str(tag), obj_pickle, self._get_now_str())
-            c.execute('REPLACE INTO data VALUES (?, ?, ?, ?)', data)
+            c.execute('REPLACE INTO DATA VALUES (?, ?, ?, ?)', data)
 
     def get(self, key, raise_key_error=False):
         key = str(key)
         with cursor(self.conn) as c:
-            data = c.execute('SELECT value from data where key = ?', (key,))
+            data = c.execute('SELECT value FROM data WHERE key = ?', (key,))
             o = data.fetchone()
             if raise_key_error and not o:
                 raise KeyError(f'{key} not in store')
