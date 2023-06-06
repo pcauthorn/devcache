@@ -43,9 +43,7 @@ class SqliteStore:
     def _get_now_str(self):
         return datetime.utcnow().isoformat()
 
-    def __init__(self, data_dir=None, db_file_name=None):
-        if not data_dir:
-            data_dir = user_cache_dir()
+    def __init__(self, data_dir, db_file_name=None):
         if not os.path.isdir(data_dir):
             os.mkdir(data_dir)
         path = os.path.expanduser(data_dir)
@@ -70,6 +68,7 @@ class SqliteStore:
                 raise KeyError(f'{key} not in store')
             elif o:
                 return pickle.loads(o[0])
+
 
     def exists(self, key):
         with cursor(self.conn) as c:
@@ -99,10 +98,14 @@ class SqliteStore:
         with cursor(self.conn) as c:
             c.execute('DELETE FROM data WHERE timestamp < ?', (ref_time_utc.isoformat(),))
 
+    def clear(self):
+        with cursor(self.conn) as c:
+            c.execute('DELETE FROM data')
+
     def _ls(self, tag=None):
         items = []
         with cursor(self.conn) as c:
-            sql = 'SELECT key FROM data'
+            sql = 'SELECT key FROM data order by timestamp asc'
             if tag:
                 sql += ' WHERE tag = ?'
             data = c.execute(sql) if not tag else c.execute(sql, (tag,))
