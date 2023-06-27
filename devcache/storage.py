@@ -4,8 +4,6 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 
-from platformdirs import user_cache_dir
-
 
 @contextmanager
 def cursor(connection):
@@ -69,7 +67,6 @@ class SqliteStore:
             elif o:
                 return pickle.loads(o[0])
 
-
     def exists(self, key):
         with cursor(self.conn) as c:
             data = c.execute('SELECT EXISTS(SELECT 1 FROM data WHERE key=?)', (key,))
@@ -105,7 +102,7 @@ class SqliteStore:
     def _ls(self, tag=None):
         items = []
         with cursor(self.conn) as c:
-            sql = 'SELECT key FROM data order by timestamp asc'
+            sql = 'SELECT key FROM data ORDER BY timestamp ASC'
             if tag:
                 sql += ' WHERE tag = ?'
             data = c.execute(sql) if not tag else c.execute(sql, (tag,))
